@@ -738,7 +738,7 @@ display:
 
           // Draw black background and initialization message
           it.filled_rectangle(0, 0, w, h, Color::BLACK);
-          it.printf(w/2, h/2, id(font_date), TextAlign::CENTER, "Initializing this device...");
+          it.printf(w/2, h/2, id(font_date), TextAlign::CENTER, "Initializing this damn thing...");
 
       # Thermostat display page
       - id: termostato_page
