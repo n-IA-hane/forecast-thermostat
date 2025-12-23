@@ -1,232 +1,405 @@
-# ESPHome Configuration for Thermostat and Weather Monitoring
+# =============================================================================
+# ESPHome Smart Thermostat with Weather Forecast Display
+# =============================================================================
+#
+# A feature-rich ESP32-based thermostat with ILI9341 touchscreen display,
+# integrating Home Assistant for weather forecasts, alarm control, and
+# power consumption monitoring.
+#
+# Hardware Requirements:
+#   - ESP32 development board
+#   - ILI9341 320x240 TFT display with XPT2046 touch controller
+#   - BME280 temperature/humidity/pressure sensor
+#   - PIR motion sensor (optional)
+#   - Piezo buzzer for RTTTL tones (optional)
+#
+# Home Assistant Integration:
+#   - Weather entity for current conditions and forecasts
+#   - Heater switch control via Shelly relay
+#   - Alarm control panel integration
+#   - Power consumption monitoring sensors
+#
+# =============================================================================
+
 esphome:
-  name: forecast-thermostat-32x24      # Name of the ESPHome device
-  platform: ESP32                      # Platform being used
-  board: esp32dev                      # Board type
-
-  # Actions to perform when the device boots
+  name: forecast-thermostat-32x24
   on_boot:
-    - display.page.show: init_page      # Show the initialization page
-    - delay: 2s                         # Wait for 2 seconds
-    - display.page.show: termostato_page # Show the main thermostat page
+    - display.page.show: init_page
+    - delay: 2s
+    - display.page.show: termostato_page
 
-# Substitutions for easier configuration management
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# =============================================================================
+# Configuration Substitutions
+# =============================================================================
+# Centralized configuration variables for easy customization.
+# Modify these values to match your Home Assistant entity IDs.
+
 substitutions:
-  heater: switch.shelly_caldaia         # Heater switch entity
-  weather_entity: weather.casa          # Weather entity in Home Assistant
-  tc: sensor.consumo_totale_power       # Total power consumption sensor
-  pc: sensor.consumo_cantina_power      # Cellar power consumption sensor
-  alarm_entity: alarm_control_panel.allarme # Alarm control panel entity
-  icon_xy: '60x60'                      # Dimensions for weather icons
+  heater: switch.shelly_caldaia             # Home Assistant heater switch entity
+  weather_entity: weather.casa              # Home Assistant weather entity
+  forecast_interval: 5min                   # Weather forecast update interval
+  tc: sensor.consumo_totale_power           # Total household power consumption sensor
+  pc: sensor.consumo_cantina_power          # Secondary power consumption sensor (e.g., laundry room)
+  alarm_entity: alarm_control_panel.allarme # Home Assistant alarm control panel entity
+  icon_xy: '60x60'                          # Weather icon dimensions (width x height)
 
-# Logger configuration with debug-level logging
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+
 logger:
-  level: DEBUG  # Set global log level to DEBUG
-  logs:
-    json_parse: DEBUG      # Enable debug for 'json_parse' tag
-    forecast_parse: DEBUG  # Enable debug for 'forecast_parse' tag
-    # display: DEBUG        # Optional: Enable debug for 'display' tag if necessary
+  level: ERROR
 
-# API configuration with a custom service to play RTTTL songs
+# =============================================================================
+# Home Assistant API Configuration
+# =============================================================================
+# Exposes a custom service for playing RTTTL ringtones via Home Assistant.
+
 api:
+  on_client_connected:
+    - delay: 5s
+    - script.execute: fetch_forecast
   services:
     - service: play_rtttl
       variables:
-        song_str: string                 # RTTTL song string
+        song_str: string
       then:
         - rtttl.play:
-            rtttl: !lambda 'return song_str;' # Play the provided RTTTL song string
+            rtttl: !lambda 'return song_str;'
 
-# RTTTL output configuration
+# =============================================================================
+# RTTTL Buzzer Configuration
+# =============================================================================
+
 rtttl:
-  output: rtttl_out                      # Output pin for RTTTL
+  output: rtttl_out
 
-# OTA updates configuration
+# =============================================================================
+# OTA Updates
+# =============================================================================
+
 ota:
-  platform: esphome                        # Enable OTA updates
+  platform: esphome
 
-# WiFi configuration with manual IP and Access Point fallback
+# =============================================================================
+# WiFi Configuration
+# =============================================================================
+# Static IP configuration with fallback Access Point mode for initial setup.
+
 wifi:
-  ssid: !secret wifi_ssid                  # WiFi SSID (hidden in secrets)
-  password: !secret wifi_password          # WiFi password (hidden in secrets)
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
   manual_ip:
-    static_ip: 192.168.1.15                # Static IP address
-    gateway: 192.168.1.1                   # Network gateway
-    subnet: 255.255.255.0                  # Subnet mask
+    static_ip: 192.168.1.15
+    gateway: 192.168.1.1
+    subnet: 255.255.255.0
   ap:
-    ssid: "Weather-thermostat"                    # Access Point SSID
-    password: !secret fallpass              # Access Point password (hidden in secrets)
+    ssid: "Weather-thermostat"
+    password: !secret fallpass
 
-# Captive portal for initial setup
 captive_portal:
 
-# JSON component used for deserializing forecast sensor data
+# =============================================================================
+# JSON Component
+# =============================================================================
+# Required for parsing weather forecast JSON responses from Home Assistant.
+
 json:
 
-# SPI bus configuration for the monitor display
-spi:
-  clk_pin: 18                              # SPI Clock Pin
-  mosi_pin: 23                             # SPI MOSI Pin
-  miso_pin: 19                             # SPI MISO Pin
+# =============================================================================
+# SPI Bus Configuration
+# =============================================================================
+# Used by the ILI9341 display and XPT2046 touch controller.
 
-# I2C bus configuration for bme280
+spi:
+  clk_pin: 18
+  mosi_pin: 23
+  miso_pin: 19
+
+# =============================================================================
+# I2C Bus Configuration
+# =============================================================================
+# Used by the BME280 environmental sensor.
+
 i2c:
   - id: bus_a
-    sda: 32                                # I2C SDA Pin
-    scl: 25                                # I2C SCL Pin
+    sda: 32
+    scl: 25
 
-# Climate (Thermostat) configuration
+# =============================================================================
+# Climate/Thermostat Configuration
+# =============================================================================
+# Bang-bang thermostat controller using BME280 temperature readings.
+# Controls heating via Home Assistant switch entity.
+
 climate:
   - platform: thermostat
     visual:
-      min_temperature: 16 °C               # Minimum temperature setting
-      max_temperature: 30 °C               # Maximum temperature setting
-    name: Termostato                        # Name of the climate device
-    id: termostato1                         # Identifier for the climate component
-    sensor: temp_int                        # Internal temperature sensor
-    min_heating_off_time: 30s               # Minimum time to keep heating off
-    min_heating_run_time: 30s               # Minimum time to keep heating on
-    min_idle_time: 30s                      # Minimum idle time
+      min_temperature: 16 °C
+      max_temperature: 30 °C
+    name: Termostato
+    id: termostato1
+    sensor: temp_int
+    min_heating_off_time: 30s
+    min_heating_run_time: 30s
+    min_idle_time: 30s
     heat_action:
       homeassistant.service:
         service: switch.turn_on
         data:
-          entity_id: $heater                 # Action to turn on the heater
+          entity_id: $heater
     idle_action:
       homeassistant.service:
         service: switch.turn_off
         data:
-          entity_id: $heater                 # Action to turn off the heater
+          entity_id: $heater
 
-# Touchscreen configuration using XPT2046 controller
+# =============================================================================
+# Touchscreen Configuration
+# =============================================================================
+# XPT2046 resistive touch controller with calibration values.
+# Touch events trigger backlight wake-up.
+
 touchscreen:
   platform: xpt2046
   id: xpt2046_touch
-  cs_pin: 14                                # Chip Select Pin
+  cs_pin: 14
   transform:
-    mirror_x: true                          # Mirror X-axis
-    mirror_y: true                          # Mirror Y-axis
-    swap_xy: true                           # Swap X and Y axes
+    mirror_x: true
+    mirror_y: true
+    swap_xy: true
   calibration:
-    x_min: 380                              # Minimum X calibration value
-    x_max: 3800                             # Maximum X calibration value
-    y_min: 370                              # Minimum Y calibration value
-    y_max: 3900                             # Maximum Y calibration value
+    x_min: 380
+    x_max: 3800
+    y_min: 370
+    y_max: 3900
   on_touch:
-    - script.stop: backlight_timer          # Stop the backlight timer script on touch
-    - script.execute: backlight_timer       # Execute the backlight timer script on touch
+    - script.stop: backlight_timer
+    - script.execute: backlight_timer
 
-# Output configurations for backlight and RTTTL
+# =============================================================================
+# PWM Output Configuration
+# =============================================================================
+
 output:
+  # Display backlight PWM control
   - platform: ledc
-    pin: 15                                 # LEDC Pin for backlight PWM
+    pin: 15
     id: backlight_pwm
-    inverted: true                          # Invert the PWM signal
+    inverted: true
 
+  # RTTTL buzzer output
   - platform: ledc
-    pin: GPIO21                              # LEDC Pin for RTTTL output
+    pin: GPIO21
     id: rtttl_out
 
-# Light configuration for the thermostat backlight
+# =============================================================================
+# Backlight Control
+# =============================================================================
+# Monochromatic light component for display backlight brightness control.
+
 light:
   - platform: monochromatic
     output: backlight_pwm
-    name: "Thermostat Light"                # Name of the backlight
+    name: "Thermostat Light"
     id: back_light
-    restore_mode: ALWAYS_ON                 # Restore light state on boot
-    internal: true                          # Internal light (not exposed to Home Assistant)
+    restore_mode: ALWAYS_ON
+    internal: true
 
-# Script to control backlight brightness based on activity
+# =============================================================================
+# Scripts
+# =============================================================================
+
 script:
+  # ---------------------------------------------------------------------------
+  # Backlight Auto-Dimming Timer
+  # ---------------------------------------------------------------------------
+  # Implements automatic backlight dimming to save power:
+  # - Full brightness for 20 seconds after interaction
+  # - 50% brightness for additional 40 seconds
+  # - Off after total 60 seconds of inactivity
+
   - id: backlight_timer
     then:
       - light.turn_on:
           id: back_light
-          brightness: 100%                     # Turn on backlight to full brightness
-      - delay: 20s                              # Wait for 20 seconds
+          brightness: 100%
+      - delay: 20s
       - light.turn_on:
           id: back_light
-          brightness: 50%                      # Reduce brightness to 50%
-      - delay: 40s                              # Wait for another 40 seconds
-      - light.turn_off: back_light              # Turn off backlight
+          brightness: 50%
+      - delay: 40s
+      - light.turn_off: back_light
 
-# Time synchronization using Home Assistant
+  # ---------------------------------------------------------------------------
+  # Weather Forecast Fetcher
+  # ---------------------------------------------------------------------------
+  # Retrieves 5-day weather forecast from Home Assistant using the
+  # weather.get_forecasts action. Parses the JSON response and stores
+  # forecast data in global variables for display rendering.
+
+  - id: fetch_forecast
+    then:
+      - homeassistant.action:
+          action: weather.get_forecasts
+          data:
+            entity_id: $weather_entity
+            type: daily
+          capture_response: true
+          on_success:
+            - lambda: |-
+                // Parse JSON response structure: response["response"]["entity_id"]["forecast"][n]
+                JsonObjectConst weather_response = response["response"];
+                if (weather_response.isNull()) {
+                  ESP_LOGE("forecast", "Invalid response structure");
+                  return;
+                }
+
+                JsonObjectConst weather_data = weather_response["${weather_entity}"];
+                if (weather_data.isNull()) {
+                  ESP_LOGE("forecast", "Weather entity ${weather_entity} not found in response");
+                  return;
+                }
+
+                JsonArrayConst forecast = weather_data["forecast"];
+                if (forecast.isNull()) {
+                  ESP_LOGE("forecast", "Forecast array not found in response");
+                  return;
+                }
+
+                int count = forecast.size();
+
+                // Populate global forecast variables (indices 1-5)
+                for (int i = 0; i < 5 && i < count; i++) {
+                  JsonObjectConst day = forecast[i];
+                  id(forecast_condition)[i + 1] = day["condition"].as<std::string>();
+                  id(forecast_precip)[i + 1]    = day["precipitation"] | 0.0f;
+                  id(forecast_temp_max)[i + 1]  = day["temperature"]   | 0.0f;
+                  id(forecast_temp_min)[i + 1]  = day["templow"]       | 0.0f;
+                }
+          on_error:
+            - logger.log:
+                level: ERROR
+                format: "Failed to fetch weather forecast from Home Assistant"
+
+# =============================================================================
+# Time Synchronization
+# =============================================================================
+
 time:
   - platform: homeassistant
-    id: esptime                              # Time component synchronized with Home Assistant
+    id: esptime
 
-# Binary sensors configuration
+# =============================================================================
+# Periodic Forecast Updates
+# =============================================================================
+
+interval:
+  - interval: $forecast_interval
+    then:
+      - script.execute: fetch_forecast
+
+# =============================================================================
+# Binary Sensors
+# =============================================================================
+
 binary_sensor:
-  # Motion sensor using GPIO pin 26
+  # ---------------------------------------------------------------------------
+  # PIR Motion Sensor
+  # ---------------------------------------------------------------------------
+  # Triggers backlight wake-up on motion detection.
+
   - platform: gpio
     pin:
       number: 26
-      mode: INPUT_PULLUP                      # Use internal pull-up resistor
-    device_class: motion                      # Device class set to motion
+      mode: INPUT_PULLUP
+    device_class: motion
     id: movimento
     name: Motion
     on_press:
-      - script.stop: backlight_timer          # Stop backlight timer on motion detected
-      - script.execute: backlight_timer       # Restart backlight timer on motion detected
+      - script.stop: backlight_timer
+      - script.execute: backlight_timer
 
-  # Heater status sensor from Home Assistant
+  # ---------------------------------------------------------------------------
+  # Heater State Sensor
+  # ---------------------------------------------------------------------------
+  # Mirrors the heater switch state from Home Assistant for local display.
+
   - platform: homeassistant
-    name: "Caldaia"                           # Name of the heater sensor
-    entity_id: $heater                        # Heater entity ID
+    name: "Caldaia"
+    entity_id: $heater
     id: sensor_caldaia
-    internal: true                             # Internal sensor (not exposed to Home Assistant)
+    internal: true
 
-  # Touchscreen button to increase target temperature
+  # ---------------------------------------------------------------------------
+  # Touchscreen Controls - Temperature Adjustment
+  # ---------------------------------------------------------------------------
+
+  # Increase target temperature (+0.5°C)
   - platform: touchscreen
     id: touch_key_plus
     x_min: 200
     x_max: 320
     y_min: 150
     y_max: 240
-    page_id: termostato_page                   # Associated display page
+    page_id: termostato_page
     on_press:
       - climate.control:
           id: termostato1
-          target_temperature: !lambda 'return (id(termostato1).target_temperature + 0.5);' # Increase temperature by 0.5°C
-      - lambda: 'id(touch_key_plus).publish_state(false);' # Reset button state
+          target_temperature: !lambda 'return (id(termostato1).target_temperature + 0.5);'
+      - lambda: 'id(touch_key_plus).publish_state(false);'
 
-  # Touchscreen button to decrease target temperature
+  # Decrease target temperature (-0.5°C)
   - platform: touchscreen
     id: touch_key_minus
     x_min: 0
     x_max: 80
     y_min: 150
     y_max: 240
-    page_id: termostato_page                   # Associated display page
+    page_id: termostato_page
     on_press:
       - climate.control:
           id: termostato1
-          target_temperature: !lambda 'return (id(termostato1).target_temperature - 0.5);' # Decrease temperature by 0.5°C
-      - lambda: 'id(touch_key_minus).publish_state(false);' # Reset button state
+          target_temperature: !lambda 'return (id(termostato1).target_temperature - 0.5);'
+      - lambda: 'id(touch_key_minus).publish_state(false);'
 
-  # Touchscreen button to toggle climate mode between HEAT and OFF
+  # ---------------------------------------------------------------------------
+  # Touchscreen Controls - Climate Mode Toggle
+  # ---------------------------------------------------------------------------
+  # Short press: Enable HEAT mode
+  # Long press (>550ms): Disable thermostat (OFF mode)
+
   - platform: touchscreen
     id: touch_key_climate
     x_min: 120
     x_max: 200
     y_min: 150
     y_max: 240
-    page_id: termostato_page                   # Associated display page
+    page_id: termostato_page
     on_click:
       - min_length: 0ms
         max_length: 500ms
         then:
           - climate.control:
               id: termostato1
-              mode: "HEAT"                    # Set climate mode to HEAT on short press
+              mode: "HEAT"
       - min_length: 550ms
         max_length: 5000ms
         then:
           - climate.control:
               id: termostato1
-              mode: "OFF"                     # Set climate mode to OFF on long press
+              mode: "OFF"
 
-  # Touchscreen button to navigate to the next display page
+  # ---------------------------------------------------------------------------
+  # Touchscreen Controls - Page Navigation
+  # ---------------------------------------------------------------------------
+
+  # Navigate to next page (skips initialization page)
   - platform: touchscreen
     id: touch_key_next
     x_min: 200
@@ -235,37 +408,38 @@ binary_sensor:
     y_max: 80
     on_press:
       - lambda: |-
-          // Show next page bypass init_page
           id(tft_ha).show_next_page();
+          // Skip init_page when navigating
           if (id(tft_ha).get_active_page() == id(init_page)) {
-            id(tft_ha).show_next_page();  // Bypass init_page
+            id(tft_ha).show_next_page();
           }
-      #- display.page.show_next: tft_ha         # Show the next display page
-      #- delay: 50ms                            # Short delay
-      - lambda: 'id(touch_key_next).publish_state(false);' # Reset button state
+      - lambda: 'id(touch_key_next).publish_state(false);'
 
-  # Touchscreen button to navigate to the previous display page
+  # Navigate to previous page (skips initialization page)
   - platform: touchscreen
     id: touch_key_previous
-    page_id: termostato_page                   # Associated display page
+    page_id: termostato_page
     x_min: 0
     x_max: 80
     y_min: 0
     y_max: 80
     on_press:
       - lambda: |-
-          // Show previous page bypass init_page
-          id(tft_ha).show_prev_page();  // Metodo corretto: show_prev_page()
+          id(tft_ha).show_prev_page();
+          // Skip init_page when navigating
           if (id(tft_ha).get_active_page() == id(init_page)) {
-            id(tft_ha).show_prev_page();  // Bypass init_page
+            id(tft_ha).show_prev_page();
           }
-      #- display.page.show_previous: tft_ha     # Show the previous display page
-      - lambda: 'id(touch_key_previous).publish_state(false);' # Reset button state
+      - lambda: 'id(touch_key_previous).publish_state(false);'
 
-  # Touchscreen button to arm the alarm in home mode
+  # ---------------------------------------------------------------------------
+  # Touchscreen Controls - Alarm Panel
+  # ---------------------------------------------------------------------------
+
+  # Arm alarm in Home mode
   - platform: touchscreen
     id: touch_key_home
-    page_id: alarm_cp_page                     # Associated display page
+    page_id: alarm_cp_page
     x_min: 0
     x_max: 160
     y_min: 0
@@ -274,13 +448,13 @@ binary_sensor:
       - homeassistant.service:
           service: alarm_control_panel.alarm_arm_home
           data:
-            entity_id: $alarm_entity            # Arm home mode for the alarm
-      - lambda: 'id(touch_key_home).publish_state(false);' # Reset button state
+            entity_id: $alarm_entity
+      - lambda: 'id(touch_key_home).publish_state(false);'
 
-  # Touchscreen button to arm the alarm in away mode
+  # Arm alarm in Away mode
   - platform: touchscreen
     id: touch_key_away
-    page_id: alarm_cp_page                     # Associated display page
+    page_id: alarm_cp_page
     x_min: 0
     x_max: 160
     y_min: 80
@@ -289,13 +463,13 @@ binary_sensor:
       - homeassistant.service:
           service: alarm_control_panel.alarm_arm_away
           data:
-            entity_id: $alarm_entity            # Arm away mode for the alarm
-      - lambda: 'id(touch_key_away).publish_state(false);' # Reset button state
+            entity_id: $alarm_entity
+      - lambda: 'id(touch_key_away).publish_state(false);'
 
-  # Touchscreen button to disarm the alarm
+  # Disarm alarm
   - platform: touchscreen
     id: touch_key_disarm
-    page_id: alarm_cp_page                     # Associated display page
+    page_id: alarm_cp_page
     x_min: 0
     x_max: 160
     y_min: 160
@@ -304,425 +478,406 @@ binary_sensor:
       - homeassistant.service:
           service: alarm_control_panel.alarm_disarm
           data:
-            entity_id: $alarm_entity            # Disarm the alarm
-            code: "1234"                        # Disarm code
-      - lambda: 'id(touch_key_disarm).publish_state(false);' # Reset button state
+            entity_id: $alarm_entity
+            code: "1234"
+      - lambda: 'id(touch_key_disarm).publish_state(false);'
 
-# Button configuration for navigating to the next page
+# =============================================================================
+# Button Component
+# =============================================================================
+
 button:
   - platform: template
     name: Next page
     on_press:
-      - display.page.show_next: tft_ha         # Show the next display page
+      - display.page.show_next: tft_ha
 
-# Sensor configurations
+# =============================================================================
+# Sensors
+# =============================================================================
+
 sensor:
-  # Temperature sensor from Home Assistant
+  # ---------------------------------------------------------------------------
+  # Weather Data from Home Assistant
+  # ---------------------------------------------------------------------------
+
   - platform: homeassistant
     id: weather_temperature
-    entity_id: $weather_entity                  # Entity ID for temperature
-    attribute: temperature                      # Attribute to read
-    internal: true                              # Internal sensor (not exposed to Home Assistant)
+    entity_id: $weather_entity
+    attribute: temperature
+    internal: true
 
-  # Wind speed sensor from Home Assistant
   - platform: homeassistant
     id: vento
-    entity_id: $weather_entity                  # Entity ID for wind speed
-    attribute: wind_speed                       # Attribute to read
-    internal: true                              # Internal sensor
+    entity_id: $weather_entity
+    attribute: wind_speed
+    internal: true
 
-  # External humidity sensor from Home Assistant
   - platform: homeassistant
     id: umidita_ext
-    entity_id: $weather_entity                  # Entity ID for external humidity
-    attribute: humidity                         # Attribute to read
-    internal: true                              # Internal sensor
+    entity_id: $weather_entity
+    attribute: humidity
+    internal: true
 
-  # BME280 sensor for internal temperature, pressure, and humidity
+  # ---------------------------------------------------------------------------
+  # BME280 Environmental Sensor
+  # ---------------------------------------------------------------------------
+  # Provides indoor temperature (used for thermostat), pressure, and humidity.
+
   - platform: bme280_i2c
-    address: 0x76                                # I2C address of the BME280 sensor
+    address: 0x76
     temperature:
-      name: "Temperature"                        # Name of the temperature sensor
-      id: temp_int                               # Identifier for internal temperature
-      oversampling: 16x                          # Oversampling setting
+      name: "Temperature"
+      id: temp_int
+      oversampling: 16x
     pressure:
-      name: "Pressure"                           # Name of the pressure sensor
-      id: pressione_int                           # Identifier for internal pressure
+      name: "Pressure"
+      id: pressione_int
     humidity:
-      name: "Humidity"                             # Name of the humidity sensor
-      id: umidita_int                             # Identifier for internal humidity
-    update_interval: 20s                         # Update interval for the BME280 sensor
+      name: "Humidity"
+      id: umidita_int
+    update_interval: 20s
 
-  # Total power consumption sensor from Home Assistant
+  # ---------------------------------------------------------------------------
+  # Power Consumption Sensors from Home Assistant
+  # ---------------------------------------------------------------------------
+
   - platform: homeassistant
     id: consumo_t
-    entity_id: $tc                               # Entity ID for total consumption
-    internal: true                               # Internal sensor
+    entity_id: $tc
+    internal: true
 
-  # Cellar power consumption sensor from Home Assistant
   - platform: homeassistant
     id: consumo_c
-    entity_id: $pc                               # Entity ID for cellar consumption
-    internal: true                               # Internal sensor
+    entity_id: $pc
+    internal: true
 
-# Text sensor configurations for weather information and alarm state
+# =============================================================================
+# Text Sensors
+# =============================================================================
+
 text_sensor:
-  # Location name from Home Assistant
   - platform: homeassistant
     id: weather_location
-    entity_id: $weather_entity                  # Entity ID for weather location
-    attribute: friendly_name                    # Attribute to read
-    internal: true                              # Internal text sensor
+    entity_id: $weather_entity
+    attribute: friendly_name
+    internal: true
 
-  # Current weather condition from Home Assistant
   - platform: homeassistant
     id: weather_condition
-    entity_id: $weather_entity                  # Entity ID for weather condition
-    internal: true                              # Internal text sensor
-
-  # Forecast JSON data from Home Assistant
-  - platform: homeassistant
-    name: "Forecast JSON"                      # Name of the forecast sensor
-    id: forecast_5
-    entity_id: sensor.previsioni                 # Entity ID for forecast data
-    attribute: forecast                          # Attribute containing forecast JSON
+    entity_id: $weather_entity
     internal: true
-    on_value:
-      then:
-        - lambda: |-
-            // Check if the sensor has a valid state
-            if (id(forecast_5).state.empty()) {
-              ESP_LOGE("forecast_parse", "Forecast sensor state is empty.");
-              return;
-            }
 
-            // Log the raw JSON
-            ESP_LOGD("forecast_parse", "Raw Forecast JSON: %s", id(forecast_5).state.c_str());
-
-            // Deserialize JSON forecast data
-            DynamicJsonDocument doc(4096);
-            auto err = deserializeJson(doc, id(forecast_5).state.c_str());
-            if (err) {
-              ESP_LOGE("forecast_parse", "Deserialization error: %s", err.c_str());
-              return;
-            }
-
-            JsonArray root = doc.as<JsonArray>();
-            for (int i = 0; i < 5; i++) {  // Zero-based
-              if (i < root.size()) {
-                JsonObject forecast_data = root[i];
-                if (!forecast_data.isNull()) {
-                  // Assign data to global variables
-                  id(forecast_condition)[i + 1] = forecast_data["condition"].as<std::string>();
-                  id(forecast_precip)[i + 1]    = forecast_data["precipitation"] | 0.0f;
-                  id(forecast_temp_max)[i + 1]  = forecast_data["temperature"]   | 0.0f;
-                  id(forecast_temp_min)[i + 1]  = forecast_data["templow"]       | 0.0f;
-
-                  // Log individual forecasts
-                  ESP_LOGD("forecast_parse", "Forecast Day %d: Condition='%s', Precipitation=%.1f mm, Temp Max=%.1f°C, Temp Min=%.1f°C", 
-                           i + 1, id(forecast_condition)[i + 1].c_str(), 
-                           id(forecast_precip)[i + 1], 
-                           id(forecast_temp_max)[i + 1], 
-                           id(forecast_temp_min)[i +1 ]);
-                } else {
-                  ESP_LOGW("forecast_parse", "Forecast Day %d: Data is null.", i + 1);
-                }
-              } else {
-                ESP_LOGW("forecast_parse", "Forecast Day %d: Index out of array bounds.", i + 1);
-              }
-            }
-
-  # Alarm state from Home Assistant
   - platform: homeassistant
-    name: "Alarm Status"                        # Name of the alarm state sensor
-    entity_id: $alarm_entity                     # Entity ID for alarm state
+    name: "Alarm Status"
+    entity_id: $alarm_entity
     id: stato_allarme
 
-# Image configurations for weather icons
+# =============================================================================
+# Weather Icon Images
+# =============================================================================
+# PNG images mapped to Home Assistant weather conditions.
+
 image:
   - file: "images/0-default.png"
     id: wpng_0
-    type: RGB24
-    resize: ${icon_xy}                            # Resize to defined dimensions
+    type: RGB
+    resize: ${icon_xy}
   - file: "images/1-clear-night.png"
     id: wpng_1
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/2-cloudy.png"
     id: wpng_2
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/3-fog.png"
     id: wpng_3
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/4-hail.png"
     id: wpng_4
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/5-lightning.png"
     id: wpng_5
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/6-lightning-rainy.png"
     id: wpng_6
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/7-partlycloudy.png"
     id: wpng_7
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/8-pouring.png"
     id: wpng_8
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/9-rainy.png"
     id: wpng_9
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/10-snowy.png"
     id: wpng_10
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/11-snowy-rainy.png"
     id: wpng_11
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/12-sunny.png"
     id: wpng_12
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/13-windy.png"
     id: wpng_13
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/14-windy-variant.png"
     id: wpng_14
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
   - file: "images/15-exceptional.png"
     id: wpng_15
-    type: RGB24
+    type: RGB
     resize: ${icon_xy}
 
-# Color definitions for UI elements
+# =============================================================================
+# Color Definitions
+# =============================================================================
+
 color:
   - id: my_red
-    red: 100%                                # Full red
-    green: 0%                                # No green
-    blue: 0%                                 # No blue
+    red: 100%
+    green: 0%
+    blue: 0%
   - id: my_yellow
-    red: 100%                                # Full red
-    green: 100%                               # Full green
-    blue: 0%                                 # No blue
+    red: 100%
+    green: 100%
+    blue: 0%
   - id: my_green
-    red: 0%                                  # No red
-    green: 100%                               # Full green
-    blue: 0%                                 # No blue
+    red: 0%
+    green: 100%
+    blue: 0%
   - id: my_blue
-    red: 0%                                  # No red
-    green: 0%                                 # No green
-    blue: 100%                               # Full blue
+    red: 0%
+    green: 0%
+    blue: 100%
   - id: my_gray
-    red: 50%                                 # Medium red
-    green: 50%                               # Medium green
-    blue: 50%                                # Medium blue
+    red: 50%
+    green: 50%
+    blue: 50%
 
-# Font configurations for various UI text elements
+# =============================================================================
+# Font Definitions
+# =============================================================================
+# Uses Google Fonts (Roboto family) and Material Design Icons.
+
 font:
   - file:
       type: gfonts
       family: Roboto
-      weight: 700                            # Bold weight
+      weight: 700
     size: 18
-    id: font_date                            # Font for date display
-
-  #- file:
-  #    type: gfonts
-  #    family: Roboto
-  #  size: 18
-  #  id: font_time                            # Font for time display
+    id: font_date
 
   - file:
       type: gfonts
       family: Roboto
       weight: 700
     size: 38
-    id: font_temp                            # Large font for temperature
+    id: font_temp
 
   - file:
       type: gfonts
       family: Roboto
     size: 14
-    id: font_location                        # Font for location text
+    id: font_location
 
   - file:
       type: gfonts
       family: Roboto
-      weight: 900                            # Extra bold weight
+      weight: 900
     size: 12
-    id: font_day                             # Font for day names
+    id: font_day
 
   - file:
       type: gfonts
       family: "Roboto Mono"
-      #weight: 100
     size: 12
     bpp: 4
-    id: font_forecast                        # Font for forecast details
+    id: font_forecast
 
-  # Sensor font with glyphs and comments
+  # Sensor display font with MDI icons
   - file:
       type: gfonts
       family: Roboto
     size: 14
     id: sensor_font
-    bpp: 4                                     # Bits per pixel
+    bpp: 4
     extras:
-      - file: "fonts/materialdesignicons-webfont.ttf"
+      - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
         glyphs: [
-          "\U000F059D",                     # Wind icon
-          "\U000F050F",                     # Temperature icon
-          "\U000F04C5",                     # Pressure icon
-          "\U000F058E",                     # Humidity icon
-          "\U000F0238",                     # Fire icon
-          "\U000F0F55",                     # Home thermometer icon
+          "\U000F059D",  # mdi:weather-windy
+          "\U000F050F",  # mdi:thermometer
+          "\U000F04C5",  # mdi:gauge
+          "\U000F058E",  # mdi:water-percent
+          "\U000F0238",  # mdi:fire
+          "\U000F0F55",  # mdi:home-thermometer
         ]
 
-  # Symbols font with glyphs and comments
-  - file: 'fonts/materialdesignicons-webfont.ttf'
+  # Large symbol font for status icons
+  - file: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
     id: symbols_font
     size: 50
     glyphs:
-      - "\U000F0238"                         # Fire icon
-      - "\U000F072A"                         # Washing machine on
-      - "\U000F11BD"                         # Washing machine off icon
-      - "\U000F0241"                         # Flash icon
-      - "\U000F0EF7"                         # Flash alert icon
-      - "\U000F06D0"                         # Eye icon
-      - "\U000F0425"                         # OFF icon
-      - "\U000F0415"                         # Plus icon
-      - "\U000F0374"                         # Minus icon
-      - "\U000F099E"                         # Alarm disarmed icon
-      - "\U000F099D"                         # Alarm armed away icon
-      - "\U000F068A"                         # Alarm armed home icon
-      - "\U000F0780"                         # Alarm partial exclusion icon
-      - "\U000F0ECC"                         # Alarm alert icon
-      - "\U000F0590"                         # Weather cloudy icon
-      - "\U000F0591"                         # Weather fog icon
-      - "\U000F0592"                         # Weather hail icon
-      - "\U000F0593"                         # Weather lightning icon
-      - "\U000F067E"                         # Weather lightning rainy icon
-      - "\U000F0594"                         # Weather night icon
-      - "\U000F0595"                         # Weather partly cloudy icon
-      - "\U000F0596"                         # Weather pouring icon
-      - "\U000F0597"                         # Weather rainy icon
-      - "\U000F0598"                         # Weather snowy icon
-      - "\U000F067F"                         # Weather snowy rainy icon
-      - "\U000F0599"                         # Weather sunny icon
-      - "\U000F059D"                         # Weather windy icon
-      - "\U000F059E"                         # Weather windy variant icon
+      - "\U000F0238"  # mdi:fire
+      - "\U000F072A"  # mdi:washing-machine
+      - "\U000F11BD"  # mdi:washing-machine-off
+      - "\U000F0241"  # mdi:flash
+      - "\U000F0EF7"  # mdi:flash-alert
+      - "\U000F06D0"  # mdi:eye
+      - "\U000F0425"  # mdi:power
+      - "\U000F0415"  # mdi:plus
+      - "\U000F0374"  # mdi:minus
+      - "\U000F099E"  # mdi:shield-off
+      - "\U000F099D"  # mdi:shield-lock
+      - "\U000F068A"  # mdi:shield-home
+      - "\U000F0780"  # mdi:shield-half-full
+      - "\U000F0ECC"  # mdi:shield-alert
+      - "\U000F0590"  # mdi:weather-cloudy
+      - "\U000F0591"  # mdi:weather-fog
+      - "\U000F0592"  # mdi:weather-hail
+      - "\U000F0593"  # mdi:weather-lightning
+      - "\U000F067E"  # mdi:weather-lightning-rainy
+      - "\U000F0594"  # mdi:weather-night
+      - "\U000F0595"  # mdi:weather-partly-cloudy
+      - "\U000F0596"  # mdi:weather-pouring
+      - "\U000F0597"  # mdi:weather-rainy
+      - "\U000F0598"  # mdi:weather-snowy
+      - "\U000F067F"  # mdi:weather-snowy-rainy
+      - "\U000F0599"  # mdi:weather-sunny
+      - "\U000F059D"  # mdi:weather-windy
+      - "\U000F059E"  # mdi:weather-windy-variant
 
-# Global variables for storing positions and forecast data
+# =============================================================================
+# Global Variables
+# =============================================================================
+# Runtime storage for display layout positions and weather forecast data.
+
 globals:
-  # Initialize x positions array (1-32) for layout calculations
+  # Display grid X positions (32 columns)
   - id: x
     type: int[33]
     restore_value: no
     initial_value: '{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}'
 
-  # Initialize y positions array (1-24) for layout calculations
+  # Display grid Y positions (24 rows)
   - id: y
     type: int[25]
     restore_value: no
     initial_value: '{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}'
 
-  # Initialize x positions for forecast icons (1-5)
+  # X positions for 5-day forecast columns
   - id: x_forecast
     type: int[6]
     restore_value: no
     initial_value: '{0,0,0,0,0,0}'
 
-  # Initialize forecast condition strings (1-5)
+  # Forecast weather conditions (indices 1-5)
   - id: forecast_condition
     type: std::array<std::string, 6>
     restore_value: no
     initial_value: '{"","","","","",""}'
 
-  # Initialize forecast precipitation values (1-5)
+  # Forecast precipitation values in mm (indices 1-5)
   - id: forecast_precip
     type: float[6]
     restore_value: no
     initial_value: '{0.0,0.0,0.0,0.0,0.0,0.0}'
 
-  # Initialize forecast minimum temperatures (1-5)
+  # Forecast minimum temperatures (indices 1-5)
   - id: forecast_temp_min
     type: float[6]
     restore_value: no
     initial_value: '{0.0,0.0,0.0,0.0,0.0,0.0}'
 
-  # Initialize forecast maximum temperatures (1-5)
+  # Forecast maximum temperatures (indices 1-5)
   - id: forecast_temp_max
     type: float[6]
     restore_value: no
     initial_value: '{0.0,0.0,0.0,0.0,0.0,0.0}'
 
-  # Day names (short)
+  # Localized day names (Italian, short format)
   - id: day_names
     type: std::array<const char *, 8>
     restore_value: no
     initial_value: '{"", "Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"}'
 
-  # Day names (extended)
+  # Localized day names (Italian, full format)
   - id: day_names_ext
     type: std::array<const char *, 8>
     restore_value: no
     initial_value: '{"", "Domenica", "Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato"}'
 
-  # Month names
+  # Localized month names (Italian, short format)
   - id: month_names
     type: std::array<const char *, 13>
     restore_value: no
     initial_value: '{"", "Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"}'
 
-# Display configuration for the ILI9341 screen
+# =============================================================================
+# Display Configuration
+# =============================================================================
+# ILI9341 320x240 TFT display with multiple pages.
+
 display:
   - platform: ili9xxx
-    model: ili9341                           # Display model
-    cs_pin: 5                                # Chip Select Pin
-    dc_pin: 4                                # Data/Command Pin
-    reset_pin: 22                            # Reset Pin
-    id: tft_ha                                # Identifier for the display
-    invert_colors: false                     # Do not invert colors
+    model: ili9341
+    cs_pin: 5
+    dc_pin: 4
+    reset_pin: 22
+    id: tft_ha
+    invert_colors: false
+    color_palette: 8BIT
     transform:
-      swap_xy: true                           # Swap X and Y axes
-      mirror_x: false                         # Do not mirror X axis
-      mirror_y: false                         # Do not mirror Y axis
+      swap_xy: true
+      mirror_x: false
+      mirror_y: false
     dimensions:
-      height: 240                             # Display height in pixels
-      width: 320                              # Display width in pixels
+      height: 240
+      width: 320
     on_page_change:
       - to: alarm_cp_page
-        #to: alarm_cp_page
         then:
+          # Auto-return to thermostat page after 60 seconds
           - delay: 60s
           - if:
               condition:
                 - display.is_displaying_page: alarm_cp_page
               then:
                 - display.page.show: termostato_page
+
     pages:
-      # Initialization page to set up positions
+      # -----------------------------------------------------------------------
+      # Initialization Page
+      # -----------------------------------------------------------------------
+      # Calculates and stores grid positions for responsive layout.
+      # Shown briefly at boot before switching to main thermostat page.
+
       - id: init_page
         lambda: |-
           int w = it.get_width();
           int h = it.get_height();
 
-          int step_x = w / 32;                  // Step size for x-axis
-          int step_y = h / 24;                  // Step size for y-axis
-          int step_forecast_x = round(w / 5.0); // Step size for forecast icons
+          // Calculate grid step sizes
+          int step_x = w / 32;
+          int step_y = h / 24;
+          int step_forecast_x = round(w / 5.0);
 
-          // Populate x[1..32] and y[1..24] with calculated positions
+          // Populate position arrays
           for (int i = 1; i <= 32; i++) {
             id(x)[i] = step_x * i;
           }
@@ -730,27 +885,32 @@ display:
             id(y)[i] = step_y * i;
           }
 
-          // Set forecast positions for 5 days
+          // Calculate forecast column center positions
           id(x_forecast)[0] = 0;
           for (int i = 1; i <= 5; i++) {
             id(x_forecast)[i] = round((i - 1) * step_forecast_x + step_forecast_x / 2.0);
           }
 
-          // Draw black background and initialization message
+          // Display initialization message
           it.filled_rectangle(0, 0, w, h, Color::BLACK);
-          it.printf(w/2, h/2, id(font_date), TextAlign::CENTER, "Initializing this damn thing...");
+          it.printf(w/2, h/2, id(font_date), TextAlign::CENTER, "Initializing...");
 
-      # Thermostat display page
+      # -----------------------------------------------------------------------
+      # Main Thermostat Page
+      # -----------------------------------------------------------------------
+      # Displays current weather, indoor/outdoor conditions, 5-day forecast,
+      # thermostat status, and power consumption indicators.
+
       - id: termostato_page
         lambda: |-
-          it.filled_rectangle(0, 0, it.get_width(), it.get_height(), Color::BLACK); // Clear the screen
+          it.filled_rectangle(0, 0, it.get_width(), it.get_height(), Color::BLACK);
 
-          // Arrays for day and month names
+          // Day and month name arrays (Italian localization)
           const char *day_array[] = {"", "Dom", "Lun", "Mar", "Mer", "Gio", "Ven", "Sab"};
           const char *day_array_ext[] = {"", "Domenica", "Lunedi", "Martedi", "Mercoledi", "Giovedi", "Venerdi", "Sabato"};
           const char *month_array[] = {"", "Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"};
 
-          // Mapping weather conditions to images
+          // Weather condition to image mapping
           static const std::map<std::string, image::Image *> image_dict = {
             {"clear-night", id(wpng_1)},
             {"cloudy", id(wpng_2)},
@@ -770,7 +930,7 @@ display:
             {"", id(wpng_0)}
           };
 
-          // Mapping weather conditions to descriptions
+          // Weather condition to localized description mapping (Italian)
           static const std::map<std::string, const char *> condition_dict = {
             {"clear-night", "Sereno"},
             {"cloudy", "Nuvoloso"},
@@ -790,198 +950,207 @@ display:
             {"", "Unknown"}
           };
 
-          // Mapping weather conditions to icons
+          // Weather condition to MDI icon mapping
           static const std::map<std::string, const char *> icon_dict = {
-            {"clear-night", "\U000F0594"},       // Weather night icon
-            {"cloudy", "\U000F0590"},            // Weather cloudy icon
-            {"fog", "\U000F0591"},               // Weather fog icon
-            {"hail", "\U000F0592"},              // Weather hail icon
-            {"lightning", "\U000F0593"},         // Weather lightning icon
-            {"lightning-rainy", "\U000F067E"},   // Weather lightning rainy icon
-            {"partlycloudy", "\U000F0595"},      // Weather partly cloudy icon
-            {"pouring", "\U000F0596"},           // Weather pouring icon
-            {"rainy", "\U000F0597"},             // Weather rainy icon
-            {"snowy", "\U000F0598"},             // Weather snowy icon
-            {"snowy-rainy", "\U000F067F"},       // Weather snowy rainy icon
-            {"sunny", "\U000F0599"},             // Weather sunny icon
-            {"windy", "\U000F059D"},             // Weather windy icon
-            {"windy-variant", "\U000F059E"},     // Weather windy variant icon
-            {"exceptional", ""},                 // Exceptional weather (no icon)
-            {"", ""}                             // Unknown weather (no icon)
+            {"clear-night", "\U000F0594"},
+            {"cloudy", "\U000F0590"},
+            {"fog", "\U000F0591"},
+            {"hail", "\U000F0592"},
+            {"lightning", "\U000F0593"},
+            {"lightning-rainy", "\U000F067E"},
+            {"partlycloudy", "\U000F0595"},
+            {"pouring", "\U000F0596"},
+            {"rainy", "\U000F0597"},
+            {"snowy", "\U000F0598"},
+            {"snowy-rainy", "\U000F067F"},
+            {"sunny", "\U000F0599"},
+            {"windy", "\U000F059D"},
+            {"windy-variant", "\U000F059E"},
+            {"exceptional", ""},
+            {"", ""}
           };
 
-          // Get current date and time
-          int current_day = id(esptime).now().day_of_week;        // Current day of the week (1=Sunday)
-          int current_month = id(esptime).now().month;            // Current month
-          int day_of_month = id(esptime).now().day_of_month;      // Current day of the month
+          // Get current date/time components
+          int current_day = id(esptime).now().day_of_week;
+          int current_month = id(esptime).now().month;
+          int day_of_month = id(esptime).now().day_of_month;
 
-          // (1) Date and Time Display
-          // Display the date and add the time
-          //it.printf(id(x)[16], id(y)[1], id(font_date), id(my_gray), TextAlign::CENTER, "%s %i %s %02i:%02i", day_array[current_day], day_of_month, month_array[current_month], id(esptime).now().hour, id(esptime).now().minute);
-          it.printf(id(x)[16], id(y)[1], id(font_date), id(my_gray), TextAlign::CENTER, "%s %i %s %02i:%02i", id(day_names)[current_day], day_of_month, id(month_names)[current_month], id(esptime).now().hour, id(esptime).now().minute);          
+          // === Section 1: Date and Time Header ===
+          it.printf(id(x)[16], id(y)[1], id(font_date), id(my_gray), TextAlign::CENTER, "%s %i %s %02i:%02i", id(day_names)[current_day], day_of_month, id(month_names)[current_month], id(esptime).now().hour, id(esptime).now().minute);
 
-          // (2) Weather Icon and Description
-          std::string weather_state = id(weather_condition).state;  // Current weather condition
+          // === Section 2: Current Weather Icon ===
+          std::string weather_state = id(weather_condition).state;
           image::Image *icon_img = image_dict.count(weather_state) ? image_dict.at(weather_state) : image_dict.at("");
           const char *desc_str = condition_dict.count(weather_state) ? condition_dict.at(weather_state) : "Unknown";
-          it.image(id(x)[16], id(y)[5], icon_img, ImageAlign::CENTER); // Display weather icon
+          it.image(id(x)[16], id(y)[5], icon_img, ImageAlign::CENTER);
 
-          // (3) Location and Temperature Display
+          // === Section 3: Temperature Display (Outdoor / Indoor) ===
           if (id(weather_location).has_state()) {
-            it.printf(id(x)[4], 0, id(font_location), id(my_blue), TextAlign::TOP_CENTER, "%s", id(weather_location).state.c_str()); // Display location
+            it.printf(id(x)[4], 0, id(font_location), id(my_blue), TextAlign::TOP_CENTER, "%s", id(weather_location).state.c_str());
           }
           if (id(weather_temperature).has_state()) {
-            it.printf(id(x)[4], id(y)[1], id(font_temp), id(my_blue), TextAlign::TOP_CENTER, "%.0f°", id(weather_temperature).state); // Display external temperature
+            it.printf(id(x)[4], id(y)[1], id(font_temp), id(my_blue), TextAlign::TOP_CENTER, "%.0f°", id(weather_temperature).state);
           }
           if (id(temp_int).has_state()) {
-            it.printf(id(x)[27], 0, id(font_location), id(my_red), TextAlign::TOP_CENTER, "In Casa");               // Label for internal temperature
-            it.printf(id(x)[27], id(y)[1], id(font_temp), id(my_red), TextAlign::TOP_CENTER, "%.0f°", id(temp_int).state); // Display internal temperature
+            it.printf(id(x)[27], 0, id(font_location), id(my_red), TextAlign::TOP_CENTER, "In Casa");
+            it.printf(id(x)[27], id(y)[1], id(font_temp), id(my_red), TextAlign::TOP_CENTER, "%.0f°", id(temp_int).state);
           }
 
-          // (4) Wind, Humidity, and Pressure Display
+          // === Section 4: Environmental Sensors (Humidity, Wind, Pressure) ===
           if (id(umidita_ext).has_state()) {
-            it.printf(id(x)[4], id(y)[5], id(sensor_font), TextAlign::TOP_CENTER, "\U000F058E %.0f%%", id(umidita_ext).state); // Display external humidity with icon
+            it.printf(id(x)[4], id(y)[5], id(sensor_font), TextAlign::TOP_CENTER, "\U000F058E %.0f%%", id(umidita_ext).state);
           }
           if (id(umidita_int).has_state()) {
-            it.printf(id(x)[27], id(y)[5], id(sensor_font), TextAlign::TOP_CENTER, "\U000F058E %.0f%%", id(umidita_int).state); // Display internal humidity with icon
+            it.printf(id(x)[27], id(y)[5], id(sensor_font), TextAlign::TOP_CENTER, "\U000F058E %.0f%%", id(umidita_int).state);
           }
           if (id(vento).has_state()) {
-            it.printf(id(x)[4], id(y)[7], id(sensor_font), TextAlign::CENTER, "\U000F059D %.0f km/h", id(vento).state); // Display wind speed with icon
+            it.printf(id(x)[4], id(y)[7], id(sensor_font), TextAlign::CENTER, "\U000F059D %.0f km/h", id(vento).state);
           }
           if (id(pressione_int).has_state()) {
-            it.printf(id(x)[27], id(y)[7], id(sensor_font), TextAlign::CENTER, "\U000F04C5 %.0fb", id(pressione_int).state); // Display pressure with icon
+            it.printf(id(x)[27], id(y)[7], id(sensor_font), TextAlign::CENTER, "\U000F04C5 %.0fb", id(pressione_int).state);
           }
 
-          // (5) Horizontal Line Separator
-          it.line(0, id(y)[8], id(x)[32], id(y)[8], Color::WHITE); // Draw horizontal line
+          // === Section 5: Separator Line ===
+          it.line(0, id(y)[8], id(x)[32], id(y)[8], Color::WHITE);
 
-          // (6) Forecast Display Using Global Variables
-          int forecast_day = current_day + 1;                  // Forecast starts from the next day
-          if (forecast_day == 8) forecast_day = 1;             // Wrap around to Sunday if necessary
+          // === Section 6: 5-Day Weather Forecast ===
+          int forecast_day = current_day + 1;
+          if (forecast_day == 8) forecast_day = 1;
 
-          for (int i = 1; i <= 5; ++i) {                       // Loop through 5-day forecast
-            std::string condition = id(forecast_condition)[i]; // Forecast condition
-            float precipitation   = id(forecast_precip)[i];    // Precipitation value
-            float temp_max        = id(forecast_temp_max)[i];  // Maximum temperature
-            float temp_min        = id(forecast_temp_min)[i];  // Minimum temperature
+          for (int i = 1; i <= 5; ++i) {
+            std::string condition = id(forecast_condition)[i];
+            float precipitation   = id(forecast_precip)[i];
+            float temp_max        = id(forecast_temp_max)[i];
+            float temp_min        = id(forecast_temp_min)[i];
 
-            // Display forecast day name
+            // Day name
             it.printf(id(x_forecast)[i], id(y)[9], id(font_day), id(my_green), TextAlign::CENTER, "%s", day_array_ext[forecast_day]);
 
-            // Display weather icon based on condition
+            // Weather icon
             if (icon_dict.count(condition) > 0) {
               it.printf(id(x_forecast)[i], id(y)[12], id(symbols_font), TextAlign::CENTER, "%s", icon_dict.at(condition));
             }
 
-            // Display temperature range
+            // Temperature range and precipitation
             it.printf(id(x_forecast)[i], id(y)[15], id(font_forecast), TextAlign::CENTER, "%.0f°|%.0f°", temp_min, temp_max);
-            // Display precipitation
             it.printf(id(x_forecast)[i], id(y)[16], id(font_forecast), TextAlign::CENTER, "%.0f mm", precipitation);
-            // Log weather conditions
 
-            forecast_day += 1;                                  // Move to the next day
-            if (forecast_day == 8) forecast_day = 1;           // Wrap around to Sunday if necessary
+            forecast_day += 1;
+            if (forecast_day == 8) forecast_day = 1;
           }
-          // Draw another horizontal line separator
+
+          // === Section 7: Separator Line ===
           it.line(0, id(y)[17], id(x)[32], id(y)[17], Color::WHITE);
 
-          // (7) Heating Icon Based on Thermostat Mode and Heater State
+          // === Section 8: Thermostat Status ===
           if (id(termostato1).mode == climate::CLIMATE_MODE_OFF) {
-            it.printf(id(x_forecast)[3], id(y)[20], id(symbols_font), id(my_gray), TextAlign::CENTER, "\U000F0425"); // Display OFF icon
+            it.printf(id(x_forecast)[3], id(y)[20], id(symbols_font), id(my_gray), TextAlign::CENTER, "\U000F0425");
           } else {
             if (id(sensor_caldaia).state) {
-              it.printf(id(x_forecast)[3], id(y)[20], id(symbols_font), id(my_red), TextAlign::CENTER, "\U000F0238"); // Display active heater icon in red
+              // Heater is active
+              it.printf(id(x_forecast)[3], id(y)[20], id(symbols_font), id(my_red), TextAlign::CENTER, "\U000F0238");
             } else {
-              it.printf(id(x_forecast)[3], id(y)[20], id(symbols_font), id(my_gray), TextAlign::CENTER, "\U000F0238"); // Display inactive heater icon in gray
+              // Heater is idle
+              it.printf(id(x_forecast)[3], id(y)[20], id(symbols_font), id(my_gray), TextAlign::CENTER, "\U000F0238");
             }
           }
 
-          // (8) Target Temperature Display
-          it.printf(id(x_forecast)[3], id(y)[24], id(font_location), id(my_red), TextAlign::BASELINE_CENTER, "%.1f°", id(termostato1).target_temperature); // Display target temperature
+          // Target temperature display
+          it.printf(id(x_forecast)[3], id(y)[24], id(font_location), id(my_red), TextAlign::BASELINE_CENTER, "%.1f°", id(termostato1).target_temperature);
 
-          // (9) Motion Sensor Indicators
+          // === Section 9: Motion Sensor Indicator ===
           if (id(movimento).state) {
-            it.printf(id(x_forecast)[5], id(y)[21], id(symbols_font), id(my_red), TextAlign::CENTER, "\U000F06D0"); // Display active motion icon in red
-            it.printf(id(x_forecast)[1],  id(y)[21], id(symbols_font), id(my_red), TextAlign::CENTER,  "\U000F06D0"); // Display active motion icon in red
+            it.printf(id(x_forecast)[5], id(y)[21], id(symbols_font), id(my_red), TextAlign::CENTER, "\U000F06D0");
+            it.printf(id(x_forecast)[1],  id(y)[21], id(symbols_font), id(my_red), TextAlign::CENTER,  "\U000F06D0");
           } else {
-            it.printf(id(x_forecast)[5], id(y)[21], id(symbols_font), id(my_gray), TextAlign::CENTER, "\U000F0415"); // Display inactive motion icon in gray
-            it.printf(id(x_forecast)[1],  id(y)[21], id(symbols_font), id(my_gray), TextAlign::CENTER,  "\U000F0374"); // Display inactive motion icon in gray
+            it.printf(id(x_forecast)[5], id(y)[21], id(symbols_font), id(my_gray), TextAlign::CENTER, "\U000F0415");
+            it.printf(id(x_forecast)[1],  id(y)[21], id(symbols_font), id(my_gray), TextAlign::CENTER,  "\U000F0374");
           }
 
-          // (10) Total Power Consumption Display
+          // === Section 10: Total Power Consumption ===
           if (id(consumo_t).has_state()) {
             int icona_x = id(x)[6];
             if (id(consumo_t).state < 2800) {
-              it.printf(id(x_forecast)[2], id(y)[20], id(symbols_font), id(my_gray), TextAlign::CENTER, "\U000F0241"); // Display low consumption icon in gray
-              it.printf(id(x_forecast)[2], id(y)[24], id(font_location), id(my_blue), TextAlign::BASELINE_CENTER, "%.0f W", id(consumo_t).state); // Display consumption value in blue
+              // Normal consumption (below threshold)
+              it.printf(id(x_forecast)[2], id(y)[20], id(symbols_font), id(my_gray), TextAlign::CENTER, "\U000F0241");
+              it.printf(id(x_forecast)[2], id(y)[24], id(font_location), id(my_blue), TextAlign::BASELINE_CENTER, "%.0f W", id(consumo_t).state);
             } else {
-              it.printf(id(x_forecast)[2], id(y)[20], id(symbols_font), id(my_red), TextAlign::CENTER, "\U000F0241"); // Display high consumption icon in red
-              it.printf(id(x_forecast)[2], id(y)[24], id(font_location), id(my_red), TextAlign::BASELINE_CENTER, "%.0f W", id(consumo_t).state); // Display consumption value in red
+              // High consumption warning
+              it.printf(id(x_forecast)[2], id(y)[20], id(symbols_font), id(my_red), TextAlign::CENTER, "\U000F0241");
+              it.printf(id(x_forecast)[2], id(y)[24], id(font_location), id(my_red), TextAlign::BASELINE_CENTER, "%.0f W", id(consumo_t).state);
             }
           }
 
-          // (11) Washing Machine Power Consumption Display
+          // === Section 11: Secondary Power Consumption (Washing Machine) ===
           if (id(consumo_c).has_state()) {
             int icona_x = id(x)[18];
             if (id(consumo_c).state > 20) {
-              it.printf(id(x_forecast)[4], id(y)[20], id(symbols_font), id(my_red), TextAlign::CENTER, "\U000F072A"); // Display washing machine on icon in red
-              it.printf(id(x_forecast)[4], id(y)[24], id(font_location), id(my_red), TextAlign::BASELINE_CENTER, "%.0f W", id(consumo_c).state); // Display consumption value in red
+              // Appliance is running
+              it.printf(id(x_forecast)[4], id(y)[20], id(symbols_font), id(my_red), TextAlign::CENTER, "\U000F072A");
+              it.printf(id(x_forecast)[4], id(y)[24], id(font_location), id(my_red), TextAlign::BASELINE_CENTER, "%.0f W", id(consumo_c).state);
             } else {
-              it.printf(id(x_forecast)[4], id(y)[20], id(symbols_font), id(my_gray), TextAlign::CENTER, "\U000F11BD"); // Display washing machine off icon in gray
-              it.printf(id(x_forecast)[4], id(y)[24], id(font_location), id(my_blue), TextAlign::BASELINE_CENTER, "%.0f W", id(consumo_c).state); // Display consumption value in blue
+              // Appliance is off
+              it.printf(id(x_forecast)[4], id(y)[20], id(symbols_font), id(my_gray), TextAlign::CENTER, "\U000F11BD");
+              it.printf(id(x_forecast)[4], id(y)[24], id(font_location), id(my_blue), TextAlign::BASELINE_CENTER, "%.0f W", id(consumo_c).state);
             }
           }
 
+      # -----------------------------------------------------------------------
       # Alarm Control Panel Page
+      # -----------------------------------------------------------------------
+      # Touch interface for Home Assistant alarm control.
+      # Left side: Control buttons (Arm Home, Arm Away, Disarm)
+      # Right side: Current alarm status with icon
+
       - id: alarm_cp_page
         lambda: |-
-          it.filled_rectangle(0, 0, it.get_width(), it.get_height(), Color::BLACK); // Clear the screen
-          it.filled_rectangle(0, 0, it.get_width()/2, it.get_height(), id(my_gray)); // Draw gray rectangle on the left half
-          it.rectangle(0, 0, it.get_width(), it.get_height(), Color::WHITE); // Draw white border around the screen
-          it.line(it.get_width()/2, 0, it.get_width()/2, it.get_height(), Color::WHITE); // Draw white vertical line in the center
+          it.filled_rectangle(0, 0, it.get_width(), it.get_height(), Color::BLACK);
+          it.filled_rectangle(0, 0, it.get_width()/2, it.get_height(), id(my_gray));
+          it.rectangle(0, 0, it.get_width(), it.get_height(), Color::WHITE);
+          it.line(it.get_width()/2, 0, it.get_width()/2, it.get_height(), Color::WHITE);
 
-          // Alarm options text
+          // Alarm control button labels (Italian)
           const char *left_texts[] = {
-            "Attiva in casa",         // Option to arm the alarm in home mode
-            "Attiva fuori casa",         // Option to arm the alarm in away mode
-            "Disattiva",           // Option to disarm the alarm
+            "Attiva in casa",       // Arm Home
+            "Attiva fuori casa",    // Arm Away
+            "Disattiva",            // Disarm
           };
-          const int num_sections = 3;                         // Number of alarm options
-          const int section_height = it.get_height() / num_sections; // Height of each section
-          int left_center_x = it.get_width() / 4;             // X position for centered text
+          const int num_sections = 3;
+          const int section_height = it.get_height() / num_sections;
+          int left_center_x = it.get_width() / 4;
 
-          // Display alarm options
+          // Draw button labels and dividers
           for (int i = 0; i < num_sections; i++) {
-            int text_y = section_height * i + section_height / 2; // Y position for the text
-            it.printf(left_center_x, text_y, id(font_location), TextAlign::CENTER, left_texts[i]); // Display option text
+            int text_y = section_height * i + section_height / 2;
+            it.printf(left_center_x, text_y, id(font_location), TextAlign::CENTER, left_texts[i]);
             if (i < num_sections - 1) {
               int line_y = section_height * (i + 1);
-              it.line(0, line_y, it.get_width()/2, line_y, Color::WHITE); // Draw horizontal lines between options
+              it.line(0, line_y, it.get_width()/2, line_y, Color::WHITE);
             }
           }
 
-          // Mapping alarm states to icons
+          // Alarm state to icon mapping
           static const std::map<std::string, const char *> alarm_icon_dict = {
-            {"armed_away", "\U000F099D"},           // Alarm armed away icon
-            {"armed_home", "\U000F068A"},           // Alarm armed home icon
-            {"armed_custom_bypass", "\U000F0780"},  // Alarm partial exclusion icon
-            {"disarmed", "\U000F099E"},             // Alarm disarmed icon
-            {"anomaly", "\U000F0ECC"},              // Alarm anomaly icon
-            {"", "\U000F0ECC"}                      // Default alarm anomaly icon
+            {"armed_away", "\U000F099D"},
+            {"armed_home", "\U000F068A"},
+            {"armed_custom_bypass", "\U000F0780"},
+            {"disarmed", "\U000F099E"},
+            {"anomaly", "\U000F0ECC"},
+            {"", "\U000F0ECC"}
           };
 
-          // Mapping alarm states to descriptions
+          // Alarm state to localized description mapping (Italian)
           static const std::map<std::string, const char *> alarm_text_dict = {
-            {"armed_away", "Fuori casa"},            // Description for armed away
-            {"armed_home", "Dentro casa"},            // Description for armed home
-            {"armed_custom_bypass", "Bypass"}, // Description for partial exclusion
-            {"disarmed", "Disarmato"},                // Description for disarmed
-            {"anomaly", "Anomalia"},            // Description for anomaly
-            {"arming", "In attivazione"},        // Description for arming
-            {"", "Sconosciuto"}                     // Default description
+            {"armed_away", "Fuori casa"},
+            {"armed_home", "Dentro casa"},
+            {"armed_custom_bypass", "Bypass"},
+            {"disarmed", "Disarmato"},
+            {"anomaly", "Anomalia"},
+            {"arming", "In attivazione"},
+            {"", "Sconosciuto"}
           };
 
-          // Get current alarm state
+          // Get current alarm state and lookup display values
           std::string alarm_state = id(stato_allarme).state;
           const char *alarm_icon = alarm_icon_dict.count(alarm_state)
                                    ? alarm_icon_dict.at(alarm_state)
@@ -990,21 +1159,22 @@ display:
                                    ? alarm_text_dict.at(alarm_state)
                                    : "Unknown State";
 
-          // Set alarm color based on state
+          // Determine status color based on alarm state
           Color alarm_color = Color::WHITE;
           if (alarm_state == "armed_away" || alarm_state == "anomaly") {
-            alarm_color = id(my_red);                 // Red color for armed away or anomaly
+            alarm_color = id(my_red);
           } else if (alarm_state == "armed_home") {
-            alarm_color = id(my_yellow);              // Yellow color for armed home
+            alarm_color = id(my_yellow);
           } else if (alarm_state == "armed_custom_bypass") {
-            alarm_color = id(my_blue);                // Blue color for partial exclusion
+            alarm_color = id(my_blue);
           } else if (alarm_state == "arming") {
-            alarm_color = id(my_yellow);                // Yellow color for arming
+            alarm_color = id(my_yellow);
           }
-          // Display alarm icon and description
-          int icon_x = it.get_width() * 3 / 4;          // X position for the alarm icon
-          int icon_y = it.get_height() / 2 - 20;        // Y position for the alarm icon
-          it.printf(icon_x, icon_y, id(symbols_font), alarm_color, TextAlign::CENTER, alarm_icon); // Display alarm icon
 
-          int text_y = icon_y + 30;                     // Y position for the alarm description
-          it.printf(icon_x, text_y, id(font_location), alarm_color, TextAlign::CENTER, alarm_text); // Display alarm description
+          // Display alarm status icon and text on right side
+          int icon_x = it.get_width() * 3 / 4;
+          int icon_y = it.get_height() / 2 - 20;
+          it.printf(icon_x, icon_y, id(symbols_font), alarm_color, TextAlign::CENTER, alarm_icon);
+
+          int text_y = icon_y + 30;
+          it.printf(icon_x, text_y, id(font_location), alarm_color, TextAlign::CENTER, alarm_text);

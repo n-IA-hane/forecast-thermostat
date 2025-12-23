@@ -1,121 +1,259 @@
-# Forecast-Thermostat
+# Forecast-Thermostat v4.0
 
-This is the updated program for the AZTouch electronic board, developed using ESPHome to function as a thermostat with integrated weather forecast capabilities. Below, you will find the latest details, features, and instructions for configuring the device.
+A smart ESP32-based thermostat with ILI9341 touchscreen display, featuring 5-day weather forecasts, Home Assistant integration, and power consumption monitoring.
 
-![aztouch_wall](https://github.com/niahane/meteo-thermostat/blob/7a2923ba1b6a4c6382c3172988ddbd63d4416278/readme_img/aztouch%20wall.jpg)
-[AZTouch on Amazon](https://www.amazon.it/AZDelivery-AZ-Touch-custodie-pollici-ESP8266/dp/B081FC31Q5?th=1)
+![aztouch_wall](readme_img/aztouch%20wall.jpg)
+
+**Compatible Hardware:** [AZTouch on Amazon](https://www.amazon.it/AZDelivery-AZ-Touch-custodie-pollici-ESP8266/dp/B081FC31Q5?th=1)
+
+---
 
 ## Features
 
-- **Weather Forecast Integration:** Fetches forecasts using Home Assistant's weather services.
-- **Local Data Processing:** Parses forecast data directly on the ESP32 to avoid overloading Home Assistant.
-- **Dynamic Display Logic:** The screen layout is now divided into a grid-like matrix using auto-calculated variables set during device initialization. This ensures flexible and efficient rendering.
-- **Optimized Rendering:** The deserialization of JSON forecast data occurs only when the forecast state changes, minimizing CPU load during rendering. Most calculations are performed at startup or when entities change state, further reducing runtime computational overhead.
-- **Expanded Forecast View:** Now displays 5 days of weather forecasts instead of 4, offering a more comprehensive view.
-- **Minimal Database Usage:** Reduces sensor-related database writes in Home Assistant.
-- **Touchscreen Support:** Fully interactive interface for thermostat control.
-- **Independent Operation:** Thermostat logic is embedded in the ESP32, ensuring basic functionality even without internet access.
-- **Additional Sensors:**
-  - BME280 for internal temperature, humidity, and pressure.
-  ![bme280](https://github.com/niahane/meteo-thermostat/blob/7a2923ba1b6a4c6382c3172988ddbd63d4416278/readme_img/bme280.jpg)
-  - Motion sensor to control the backlight.
-  ![rclw](https://github.com/niahane/meteo-thermostat/blob/7a2923ba1b6a4c6382c3172988ddbd63d4416278/readme_img/rclw-0516.jpg)
-- **Optional Energy Monitoring:** Supports power consumption sensors for total and partial loads.
-- **Customizable Localization:** Weather conditions, days, and months can be translated directly in the code.
-- **Google Fonts Integration:** Fonts are now downloaded dynamically, eliminating the need for a local fonts folder.
-- **Alarm Control Panel:** Includes a dedicated page for managing the alarm system. If unused, references to this page and related touchscreen controls can be removed.
+- **5-Day Weather Forecast** - Displays weather conditions, temperatures, and precipitation directly fetched from Home Assistant
+- **Smart Thermostat Control** - Bang-bang temperature control with touchscreen interface
+- **Power Consumption Monitoring** - Real-time display of household energy usage with high consumption alerts
+- **Alarm Control Panel** - Integrated page for arming/disarming your Home Assistant alarm
+- **Motion-Activated Backlight** - Auto-dimming display with PIR sensor wake-up
+- **RTTTL Buzzer Support** - Play notification melodies via Home Assistant service calls
+- **Offline Operation** - Core thermostat functionality works even without internet connection
+- **Fully Localized** - Italian day/month names and weather descriptions (easily customizable)
 
-## What's New?
+---
 
-1. **Updated Forecast Method:**
-   - Home Assistant no longer provides forecast attributes directly within the `weather` entity. Instead, you must create a template sensor to call the `weather.get_forecasts` service.
-   - Example configuration for Home Assistant:
-     ```yaml
-     - trigger:
-         - platform: time_pattern
-           minutes: /1
-       action:
-         - service: weather.get_forecasts
-           data:
-             type: daily
-           target:
-             entity_id: weather.casa
-           response_variable: previsioni
-       sensor:
-         - name: Previsioni
-           unique_id: weather_forecast
-           state: "{{ now().isoformat() }}"
-           attributes:
-             forecast: "{{ previsioni['weather.casa']['forecast'] }}"
-     ```
-2. **Dynamic Display Logic:**
-   - The screen layout uses a matrix grid system where positions are auto-calculated during initialization. This improves flexibility and simplifies UI adjustments.
-3. **Optimized Rendering:**
-   - JSON deserialization and other intensive computations are triggered only when forecast data or related entities change state.
-   - Runtime CPU load is minimized by performing most calculations at startup or during state changes.
-4. **Expanded Forecast View:**
-   - The weather forecast now displays 5 days instead of 4, providing a more detailed view.
-5. **Enhanced Logging:** Debug-level logs for easier troubleshooting and development.
-6. **Optimized UI Design:** Clearer display with refined layouts for weather, thermostat, and energy monitoring data.
-7. **Simplified Font Handling:** Fonts are now downloaded directly from Google Fonts, reducing setup complexity.
-8. **Alarm Control Panel:** Added a dedicated page for managing the alarm system. If unnecessary, related code can be removed.
+## What's New in v4.0
 
-## Sensors and Entities
+### Direct Weather Forecast Integration
 
-- **Required:**
-  - `switch.shelly_caldaia`: Entity to control the heater (or equivalent switch).
-  - `weather.casa`: Home Assistant weather entity.
-- **Optional:**
-  - `sensor.consumo_totale_power`: Sensor for total power consumption.
-  - `sensor.consumo_cantina_power`: Sensor for partial power consumption.
-  - `alarm_control_panel.allarme`: Alarm panel entity for integrating alarm controls.
+**No more template sensors required!** Previous versions required creating a template sensor in Home Assistant to fetch weather forecasts. Version 4.0 calls the `weather.get_forecasts` service directly from the ESP32.
+
+The device now:
+- Automatically fetches forecasts when connecting to Home Assistant (with 5s delay for stability)
+- Updates forecasts every 5 minutes (configurable via `forecast_interval` substitution)
+- Handles all JSON parsing on-device
+
+### Other Improvements
+
+- Professional English documentation throughout the codebase
+- Cleaner code structure with organized sections
+- Improved error handling for forecast fetching
+- Removed dependency on external Home Assistant sensors for forecasts
+
+---
+
+## Hardware Requirements
+
+| Component | Description | Image |
+|-----------|-------------|-------|
+| **ESP32 + Display** | AZTouch kit with ILI9341 320x240 TFT and XPT2046 touch controller | ![aztouch](readme_img/aztouch.jpg) |
+| **BME280** | Temperature, humidity, and pressure sensor (I2C, address 0x76) | ![bme280](readme_img/bme280.jpg) |
+| **PIR Sensor** | Motion sensor for backlight activation (optional) | ![pir](readme_img/rclw-0516.jpg) |
+
+### Pin Configuration
+
+| Function | GPIO |
+|----------|------|
+| Display CS | 5 |
+| Display DC | 4 |
+| Display Reset | 22 |
+| Touch CS | 14 |
+| SPI CLK | 18 |
+| SPI MOSI | 23 |
+| SPI MISO | 19 |
+| I2C SDA | 32 |
+| I2C SCL | 25 |
+| Backlight PWM | 15 |
+| PIR Sensor | 26 |
+| Buzzer | 21 |
+
+---
+
+## Home Assistant Entities
+
+### Required
+
+| Entity | Description |
+|--------|-------------|
+| `weather.casa` | Any Home Assistant weather integration (Met.no, OpenWeatherMap, etc.) |
+| `switch.shelly_caldaia` | Switch entity controlling your heater/boiler |
+
+### Optional
+
+| Entity | Description |
+|--------|-------------|
+| `sensor.consumo_totale_power` | Total household power consumption (W) |
+| `sensor.consumo_cantina_power` | Secondary power sensor, e.g., washing machine (W) |
+| `alarm_control_panel.allarme` | Home Assistant alarm control panel |
+
+---
 
 ## Installation
 
-1. **Prepare ESPHome Configuration:**
-   - Update the `secrets.yaml` file with your Wi-Fi credentials.
-   - Modify the `substitutions` section in the YAML file to match your entities:
-     ```yaml
-     substitutions:
-       heater: switch.shelly_caldaia
-       weather_entity: weather.casa
-       tc: sensor.consumo_totale_power
-       pc: sensor.consumo_cantina_power
-       alarm_entity: alarm_control_panel.allarme
-     ```
-2. **Compile and Flash:**
-   - Compile the firmware and upload it to the ESP32 using ESPHome.
-3. **Integrate with Home Assistant:**
-   - Add the thermostat to Home Assistant as an ESPHome integration.
-   - Ensure the weather forecast template sensor is set up correctly.
+### 1. Prepare Configuration Files
+
+Clone this repository and update `secrets.yaml` with your WiFi credentials:
+
+```yaml
+wifi_ssid: "YourWiFiSSID"
+wifi_password: "YourWiFiPassword"
+fallpass: "FallbackAPPassword"
+```
+
+### 2. Customize Entity IDs
+
+Edit the `substitutions` section in `forecast-thermostat-32x24.yaml` to match your Home Assistant entities:
+
+```yaml
+substitutions:
+  heater: switch.shelly_caldaia             # Your heater switch
+  weather_entity: weather.casa              # Your weather entity
+  forecast_interval: 5min                   # Forecast update interval
+  tc: sensor.consumo_totale_power           # Total power sensor (optional)
+  pc: sensor.consumo_cantina_power          # Secondary power sensor (optional)
+  alarm_entity: alarm_control_panel.allarme # Alarm panel (optional)
+  icon_xy: '60x60'                          # Weather icon size
+```
+
+### 3. Compile and Flash
+
+Using ESPHome CLI:
+```bash
+esphome run forecast-thermostat-32x24.yaml
+```
+
+Or upload via ESPHome Dashboard in Home Assistant.
+
+### 4. Integration
+
+The device will automatically appear in Home Assistant's ESPHome integration. No additional configuration required - forecasts are fetched directly via the API.
+
+---
 
 ## Usage
 
+### Display Pages
+
+The thermostat has multiple display pages accessible via touch navigation:
+
+**Main Thermostat Page:**
+- Current date and time
+- Outdoor weather with icon and temperature
+- Indoor temperature from BME280
+- Humidity (indoor/outdoor) and wind speed
+- 5-day weather forecast with icons
+- Thermostat status and target temperature
+- Power consumption indicators
+
+**Alarm Control Page:**
+- Arm Home / Arm Away / Disarm buttons
+- Current alarm state with status icon
+
 ### Touchscreen Controls
-- **Turn On/Off Thermostat:** Tap the central power button.
-- **Adjust Temperature:** Use the `+` and `-` buttons on the screen.
-- **Disable Thermostat:** Press and hold the flame icon.
-- **View Weather Forecast:** Displays a 5-day forecast with icons, descriptions, and temperatures.
-- **Energy Monitoring:** If configured, view real-time power consumption data.
-- **Alarm Integration:** Use the alarm control panel to arm/disarm the alarm system directly from the touchscreen.
 
-### Notes
-- The thermostat enforces a minimum on/off duration to protect the boiler from excessive wear.
-- The motion sensor temporarily increases screen brightness when activity is detected.
-- Weather forecasts are updated every minute using the configured Home Assistant service.
+| Action | Location | Function |
+|--------|----------|----------|
+| **Short tap** | Center bottom | Enable HEAT mode |
+| **Long press (>0.5s)** | Center bottom | Disable thermostat (OFF) |
+| **Tap** | Right bottom (+) | Increase target temperature by 0.5°C |
+| **Tap** | Left bottom (-) | Decrease target temperature by 0.5°C |
+| **Tap** | Top right | Next page |
+| **Tap** | Top left | Previous page |
 
-## Example RTTTL Usage
-The AZTouch board includes a buzzer that can play melodies. Example configuration:
+### Backlight Behavior
+
+- **Motion detected:** Full brightness for 20 seconds
+- **After 20s:** Dims to 50% brightness
+- **After 60s total:** Display turns off
+- **Any touch:** Resets the timer to full brightness
+
+---
+
+## RTTTL Buzzer
+
+Play notification melodies via Home Assistant service call:
+
 ```yaml
-service: esphome.termostato_meteo_play_rtttl
+service: esphome.forecast_thermostat_32x24_play_rtttl
 data:
   song_str: "siren:d=8,o=5,b=100:d,e,d,e,d,e,d,e"
 ```
-![hass](https://github.com/niahane/meteo-thermostat/blob/7e52d860cf970f4f9c97ee505d01e0b927ff10db/readme_img/hass_thermostat.jpg)
-A demostation video:
-https://github.com/niahane/meteo-thermostat/blob/7a2923ba1b6a4c6382c3172988ddbd63d4416278/readme_img/video.mp4?raw=true
-## Feedback and Suggestions
-This project has been a great learning experience, and I hope it proves useful in your setups. If you have any feedback, feature requests, or issues, feel free to reach out via the GitHub issue tracker or at meconiotech@gmail.com.
+
+![hass_integration](readme_img/hass_thermostat.jpg)
+
+---
+
+## Demo Video
+
+https://github.com/niahane/forecast-thermostat/raw/main/readme_img/video.mp4
+
+---
+
+## Removing Optional Features
+
+### Without Alarm Panel
+
+Remove or comment out:
+- `alarm_entity` substitution
+- `touch_key_home`, `touch_key_away`, `touch_key_disarm` binary sensors
+- `stato_allarme` text sensor
+- `alarm_cp_page` display page
+
+### Without Power Monitoring
+
+Remove or comment out:
+- `tc` and `pc` substitutions
+- `consumo_t` and `consumo_c` sensors
+- Sections 10 and 11 in the thermostat page lambda
+
+---
+
+## Troubleshooting
+
+### Forecasts not displaying
+
+1. Check that your weather entity is working in Home Assistant
+2. Verify the `weather_entity` substitution matches your entity ID
+3. Check ESPHome logs for forecast-related errors
+4. Ensure Home Assistant API connection is established (5s delay after connection)
+
+### Touch calibration issues
+
+Adjust the calibration values in the touchscreen section:
+```yaml
+calibration:
+  x_min: 380
+  x_max: 3800
+  y_min: 370
+  y_max: 3900
+```
+
+### BME280 not detected
+
+- Verify I2C wiring (SDA to GPIO32, SCL to GPIO25)
+- Check sensor I2C address (default 0x76, some modules use 0x77)
+
+---
+
+## Version History
+
+| Version | Changes |
+|---------|---------|
+| **4.0** | Direct `weather.get_forecasts` integration, no template sensor required, auto-fetch on HA connection, professional documentation |
+| **3.x** | Template sensor required for forecasts, 5-day display, alarm panel |
+| **2.x** | Initial ESPHome port, basic thermostat functionality |
+
+---
+
+## License
+
+This project is licensed under the GPL-3.0 License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## Contact
+
+For feedback, feature requests, or issues:
+- **GitHub Issues:** [Open an issue](https://github.com/niahane/forecast-thermostat/issues)
+- **Email:** meconiotech@gmail.com
 
 Enjoy your smart thermostat!
-
