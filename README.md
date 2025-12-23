@@ -190,7 +190,7 @@ data:
 
 ## Demo Video
 
-https://github.com/n-IA-hane/forecast-thermostat/raw/main/readme_img/video.mp4
+https://github.com/n-IA-hane/forecast-thermostat/raw/master/readme_img/video.mp4
 
 ---
 
