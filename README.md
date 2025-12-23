@@ -168,9 +168,17 @@ The thermostat has multiple display pages accessible via touch navigation:
 
 ---
 
+## Home Assistant Integration
+
+Once flashed, the thermostat appears automatically in Home Assistant as an ESPHome device. You can control the target temperature, switch heating modes, and monitor sensor readings directly from the HA dashboard.
+
+![hass_integration](readme_img/hass_thermostat.jpg)
+
+---
+
 ## RTTTL Buzzer
 
-Play notification melodies via Home Assistant service call:
+The AZTouch board includes a buzzer for audio notifications. Play melodies via Home Assistant service call:
 
 ```yaml
 service: esphome.forecast_thermostat_32x24_play_rtttl
@@ -178,13 +186,11 @@ data:
   song_str: "siren:d=8,o=5,b=100:d,e,d,e,d,e,d,e"
 ```
 
-![hass_integration](readme_img/hass_thermostat.jpg)
-
 ---
 
 ## Demo Video
 
-https://github.com/niahane/forecast-thermostat/raw/main/readme_img/video.mp4
+https://github.com/n-IA-hane/forecast-thermostat/raw/main/readme_img/video.mp4
 
 ---
 
@@ -253,7 +259,7 @@ This project is licensed under the GPL-3.0 License - see the [LICENSE](LICENSE) 
 ## Contact
 
 For feedback, feature requests, or issues:
-- **GitHub Issues:** [Open an issue](https://github.com/niahane/forecast-thermostat/issues)
+- **GitHub Issues:** [Open an issue](https://github.com/n-IA-hane/forecast-thermostat/issues)
 - **Email:** meconiotech@gmail.com
 
 Enjoy your smart thermostat!
