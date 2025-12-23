@@ -198,16 +198,29 @@ https://github.com/n-IA-hane/forecast-thermostat/raw/main/readme_img/video.mp4
 
 ### Without Alarm Panel
 
-Remove or comment out:
-- `alarm_entity` substitution
+Set a dummy value for the substitution and remove the related components:
+
+```yaml
+substitutions:
+  alarm_entity: alarm_control_panel.unused  # Dummy value
+```
+
+Then remove or comment out:
 - `touch_key_home`, `touch_key_away`, `touch_key_disarm` binary sensors
 - `stato_allarme` text sensor
 - `alarm_cp_page` display page
 
 ### Without Power Monitoring
 
-Remove or comment out:
-- `tc` and `pc` substitutions
+Set dummy values for the substitutions and remove the related components:
+
+```yaml
+substitutions:
+  tc: sensor.unused_power    # Dummy value
+  pc: sensor.unused_power    # Dummy value
+```
+
+Then remove or comment out:
 - `consumo_t` and `consumo_c` sensors
 - Sections 10 and 11 in the thermostat page lambda
 
